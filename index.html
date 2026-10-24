@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Shell Eco-Marathon Prototype — Lusail 3D & WebXR Track Visualizer</title>
+  
+  <!-- Glassmorphic HUD Stylesheet -->
+  <link rel="stylesheet" href="css/style.css">
+
+  <!-- ES Module Importmap for Zero-Build Local Three.js and Addons -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./lib/three.module.js",
+      "three/addons/controls/OrbitControls.js": "./lib/OrbitControls.js",
+      "three/examples/jsm/controls/OrbitControls.js": "./lib/OrbitControls.js",
+      "three/addons/loaders/GLTFLoader.js": "./lib/GLTFLoader.js",
+      "three/examples/jsm/loaders/GLTFLoader.js": "./lib/GLTFLoader.js",
+      "three/addons/loaders/DRACOLoader.js": "./lib/DRACOLoader.js",
+      "three/examples/jsm/loaders/DRACOLoader.js": "./lib/DRACOLoader.js",
+      "three/addons/loaders/OBJLoader.js": "./lib/OBJLoader.js",
+      "three/examples/jsm/loaders/OBJLoader.js": "./lib/OBJLoader.js"
+    }
+  }
+  </script>
+  <!-- Unregister any foreign service workers registered from other apps -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(registrations) {
+        for (var i = 0; i < registrations.length; i++) {
+          registrations[i].unregister();
+        }
+      }).catch(function(err) {});
+    }
+  </script>
+</head>
+<body>
+
+  <!-- Background WebRTC Camera Feed for Cross-Platform AR Fallback -->
+  <video id="ar-camera-video" playsinline autoplay muted></video>
+
+  <!-- Three.js 3D WebGL Canvas -->
+  <canvas id="webgl-canvas"></canvas>
+
+  <!-- Glassmorphic Telemetry HUD Overlay -->
+  <div id="hud-container">
+
+    <!-- Top Bar: Header & Perspective Controls -->
+    <header class="hud-panel hud-top-bar">
+      <div class="brand-section">
+        <span class="brand-badge">SEM 2026</span>
+        <div class="event-title">
+          <h1>Shell Eco-Marathon Prototype Visualizer</h1>
+          <p>Lusail International Circuit &bull; <span class="circuit-stat-tag">3,676.2 m</span> &bull; Elev <span class="circuit-stat-tag">8.0 m</span> &bull; Rule &ge; <span class="circuit-stat-tag">25.0 km/h</span></p>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <!-- Multi-Camera Perspective Controls -->
+        <div class="btn-group" role="group" aria-label="Camera Perspectives">
+          <button id="btn-cam-orbit" class="hud-btn active" data-cam="orbit" title="Free 3D Orbit Inspection">🌐 Orbit</button>
+          <button id="btn-cam-chase" class="hud-btn" data-cam="chase" title="3rd-Person Chase Cam">🏎️ Chase</button>
+          <button id="btn-cam-cockpit" class="hud-btn" data-cam="cockpit" title="Driver POV Cockpit">🎯 Cockpit</button>
+          <button id="btn-cam-map" class="hud-btn" data-cam="map" title="Top-Down Circuit Map">🗺️ Map</button>
+        </div>
+
+        <!-- Simulation Parameters Toggle -->
+        <button id="btn-toggle-params" class="hud-btn highlight" title="Adjust Simulation Parameters (Top Speed, Min Speed, Mass, Motor)">⚙️ Parameters</button>
+
+        <!-- Heatmap Overlay Toggle -->
+        <button id="btn-toggle-heatmap" class="hud-btn" title="Toggle Speed / Energy Trajectory Heatmap">🎨 Speed Heatmap</button>
+
+        <!-- Dual-Mode AR Toggle (WebXR Native + Camera Fallback) -->
+        <button id="btn-toggle-ar" class="btn-ar" title="Launch Tabletop Augmented Reality">
+          <span>🥽 Launch AR</span>
+        </button>
+        <span id="ar-status-indicator" style="font-size: 11px; font-weight: 700; margin-left: 4px;">Detecting...</span>
+      </div>
+    </header>
+
+    <!-- Left Panel: Primary Telemetry Gauges -->
+    <aside class="hud-panel hud-left-panel">
+      <div class="section-label">
+        <span>Vehicle Telemetry</span>
+        <span class="live-dot" style="display:inline-block; width:6px; height:6px; background:#00f5d4; border-radius:50%; box-shadow:0 0 8px #00f5d4;"></span>
+      </div>
+
+      <!-- Speedometer Gauge -->
+      <div class="speed-gauge-card">
+        <div class="speed-digital-display">
+          <span id="speed-value" class="speed-value">26.8</span>
+          <span class="speed-unit">km/h</span>
+        </div>
+        <div id="speed-secondary" class="speed-secondary">(7.44 m/s)</div>
+
+        <div class="speed-target-row">
+          <span>Target: <strong id="target-speed-val">23.8 - 29.5 km/h</strong></span>
+          <span id="compliance-badge" class="compliance-badge compliant">COMPLIANT</span>
+        </div>
+      </div>
+
+      <!-- Powertrain Status -->
+      <div class="fsm-status-row">
+        <span style="font-size: 11px; color: var(--text-muted); font-weight: 600;">POWERTRAIN</span>
+        <span id="fsm-pill" class="fsm-pill burst">BURST</span>
+      </div>
+
+      <!-- Electrical Power & Consumption -->
+      <div class="metrics-grid">
+        <div class="metric-card">
+          <div class="metric-title">Bus Power</div>
+          <div class="metric-val"><span id="power-val">195</span><span class="metric-unit">W</span></div>
+          <div class="power-bar-wrapper">
+            <div id="power-bar-fill" class="power-bar-fill" style="width: 78%;"></div>
+          </div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-title">Energy Used</div>
+          <div class="metric-val"><span id="energy-val">1.85</span><span class="metric-unit">Wh</span></div>
+          <div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">
+            <span id="energy-rate-val">1.48</span> Wh/km
+          </div>
+        </div>
+      </div>
+
+      <!-- Pacing Delta vs Holographic Ghost Car -->
+      <div class="pacing-delta-card">
+        <div>
+          <div style="font-size: 10px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px;">Ghost Pacer Delta</div>
+          <div style="font-size: 11px; color: #cbd5e1;">Optimal Strategy Ref</div>
+        </div>
+        <div id="pacing-delta-val" class="delta-tag ahead">-0.42 s</div>
+      </div>
+    </aside>
+
+    <!-- Floating Glassmorphic Simulation Parameters Panel -->
+    <div id="params-panel" class="hud-panel params-drawer">
+      <div class="params-header">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:18px;">⚙️</span>
+          <h2>Simulation Parameters</h2>
+        </div>
+        <button id="btn-close-params" class="btn-close-panel" title="Close Panel">&times;</button>
+      </div>
+
+      <div class="params-body">
+        <!-- 3D Car Model Selection -->
+        <div class="param-group">
+          <label class="param-label" for="select-car-model">3D Car Model</label>
+          <select id="select-car-model" class="param-select">
+            <option value="ferrari" selected>🏎️ Ferrari 458 Italia (Real Sports Car)</option>
+            <option value="real_car">🚗 Real GT Car</option>
+            <option value="prototype">⚡ Aerodynamic SEM Prototype</option>
+          </select>
+        </div>
+
+        <!-- Strategy Mode Selection -->
+        <div class="param-group">
+          <label class="param-label" for="param-strategy-mode">Driving Strategy</label>
+          <select id="param-strategy-mode" class="param-select">
+            <option value="burn_and_coast" selected>⚡ Burn-and-Coast (Pulsing Sweet-Spot)</option>
+            <option value="steady_speed">🎯 Steady Cruise (Constant Speed)</option>
+          </select>
+        </div>
+
+        <!-- Quick Strategy Presets -->
+        <div class="param-group">
+          <label class="param-label">Strategy Presets</label>
+          <div class="presets-row">
+            <button id="btn-preset-optimal" class="btn-preset active" title="Official Optimal Lap Strategy">🏆 Optimal B&C</button>
+            <button id="btn-preset-safe" class="btn-preset" title="High Safety Margin Compliance">🛡️ Safe Pace</button>
+            <button id="btn-preset-sprint" class="btn-preset" title="High Speed Lap">🚀 Sprint</button>
+            <button id="btn-preset-reset" class="btn-preset" title="Reset to Defaults">🔄 Defaults</button>
+          </div>
+        </div>
+
+        <!-- Speed Envelopes -->
+        <div class="param-slider-group">
+          <div class="slider-header">
+            <span>Burn Cutoff / Top Speed (v_high)</span>
+            <div class="slider-input-wrap">
+              <input type="number" id="num-v-high" min="16.0" max="39.5" step="0.1" value="29.5">
+              <span>km/h</span>
+            </div>
+          </div>
+          <input type="range" id="slider-v-high" min="16.0" max="39.5" step="0.1" value="29.5" class="hud-slider">
+          <div style="font-size: 10px; color: var(--accent-cyan); margin-top: 2px;">⚡ Competition Max Cap: &le; 40.0 km/h</div>
+        </div>
+
+        <div class="param-slider-group">
+          <div class="slider-header">
+            <span>Coast Floor / Burn Trigger (v_low)</span>
+            <div class="slider-input-wrap">
+              <input type="number" id="num-v-low" min="15.0" max="38.0" step="0.1" value="23.8">
+              <span>km/h</span>
+            </div>
+          </div>
+          <input type="range" id="slider-v-low" min="15.0" max="38.0" step="0.1" value="23.8" class="hud-slider">
+          <div style="font-size: 10px; color: var(--text-muted); margin-top: 2px;">Motor pulses on when speed drops to v_low</div>
+        </div>
+
+        <!-- Motor Force -->
+        <div class="param-slider-group">
+          <div class="slider-header">
+            <span>Motor Burst Force (F_burst)</span>
+            <div class="slider-input-wrap">
+              <input type="number" id="num-f-burst" min="10" max="60" step="1" value="22">
+              <span>N</span>
+            </div>
+          </div>
+          <input type="range" id="slider-f-burst" min="10" max="60" step="1" value="22" class="hud-slider">
+        </div>
+
+        <!-- Physical Vehicle Parameters -->
+        <div class="param-slider-group">
+          <div class="slider-header">
+            <span>Vehicle + Driver Mass</span>
+            <div class="slider-input-wrap">
+              <input type="number" id="num-mass" min="75" max="180" step="0.5" value="114.6">
+              <span>kg</span>
+            </div>
+          </div>
+          <input type="range" id="slider-mass" min="75" max="180" step="0.5" value="114.6" class="hud-slider">
+        </div>
+
+        <div class="param-slider-group">
+          <div class="slider-header">
+            <span>Aero Drag Area (Cd * A)</span>
+            <div class="slider-input-wrap">
+              <input type="number" id="num-cda" min="0.04" max="0.25" step="0.005" value="0.080">
+              <span>m²</span>
+            </div>
+          </div>
+          <input type="range" id="slider-cda" min="0.04" max="0.25" step="0.005" value="0.080" class="hud-slider">
+        </div>
+
+        <div class="param-slider-group">
+          <div class="slider-header">
+            <span>Rolling Resistance (Crr)</span>
+            <div class="slider-input-wrap">
+              <input type="number" id="num-crr" min="0.0010" max="0.0050" step="0.0001" value="0.0018">
+            </div>
+          </div>
+          <input type="range" id="slider-crr" min="0.0010" max="0.0050" step="0.0001" value="0.0018" class="hud-slider">
+        </div>
+
+        <!-- Real-Time Simulated Results Summary -->
+        <div class="param-results-card">
+          <div class="results-card-title">Live Physics Performance</div>
+          <div class="param-result-row">
+            <span class="p-res-label">Average Lap Speed:</span>
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span id="param-res-avg-speed" class="p-res-val">26.8 km/h</span>
+              <span id="param-res-compliance" class="compliance-badge compliant">COMPLIANT</span>
+            </div>
+          </div>
+          <div class="param-result-row">
+            <span class="p-res-label">Estimated Lap Time:</span>
+            <span id="param-res-lap-time" class="p-res-val">08:14.22</span>
+          </div>
+          <div class="param-result-row">
+            <span class="p-res-label">Lap Energy Consumption:</span>
+            <span id="param-res-energy" class="p-res-val">1.82 Wh (1.46 Wh/km)</span>
+          </div>
+          <div class="param-result-row">
+            <span class="p-res-label">Overall Efficiency:</span>
+            <span id="param-res-efficiency" class="p-res-val" style="color:var(--accent-cyan);">685 km/kWh</span>
+          </div>
+          <div class="param-result-row">
+            <span class="p-res-label">Powertrain Duty:</span>
+            <span id="param-res-pulses" class="p-res-val">52 pulses (28.4% burn)</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Panel: Topography & Dynamics Profile -->
+    <aside class="hud-panel hud-right-panel">
+      <div class="section-label">
+        <span>Circuit Topography</span>
+      </div>
+
+      <!-- Mini 2D Elevation Profile Canvas -->
+      <canvas id="elevation-sparkline"></canvas>
+
+      <div class="topo-stats-list">
+        <div class="topo-stat-row">
+          <span class="topo-label">Altitude (WGS84):</span>
+          <span id="topo-alt-val" class="topo-val">11.7 m</span>
+        </div>
+        <div class="topo-stat-row">
+          <span class="topo-label">Elevation Grade:</span>
+          <span id="topo-grade-val" class="topo-val">+1.6%</span>
+        </div>
+        <div class="topo-stat-row">
+          <span class="topo-label">Curvature (&kappa;):</span>
+          <span id="topo-curvature-val" class="topo-val">0.0048 m⁻¹</span>
+        </div>
+        <div class="topo-stat-row">
+          <span class="topo-label">Corridor Margin:</span>
+          <span class="topo-val" style="color: var(--accent-cyan);">&plusmn; 5.0 m</span>
+        </div>
+      </div>
+
+      <!-- Quick Navigation Hints -->
+      <div class="shortcuts-hint">
+        <div><span class="kbd-key">Space</span> Play / Pause</div>
+        <div><span class="kbd-key">&larr;</span> <span class="kbd-key">&rarr;</span> Scrub Timeline</div>
+        <div><span class="kbd-key">R</span> Reset to Start/Finish</div>
+      </div>
+    </aside>
+
+    <!-- Bottom Bar: Playback Timeline & Interactive Scrubber -->
+    <footer class="hud-panel hud-bottom-bar">
+      <div class="playback-controls-row">
+        <!-- Play / Pause & Reset -->
+        <div class="playback-buttons">
+          <button id="btn-play-pause" class="btn-playback-main" title="Play or Pause Telemetry">
+            <span>⏸ Pause</span>
+          </button>
+          <button id="btn-reset" class="btn-secondary" title="Reset Lap">
+            <span>⏮ Reset</span>
+          </button>
+        </div>
+
+        <!-- Range Slider Scrubber -->
+        <div class="timeline-slider-wrapper">
+          <input type="range" class="hud-slider" id="timeline-slider" min="0" max="3676" step="1" value="0">
+          <span id="distance-readout" class="distance-readout">s = 0 m / 3676 m (0.0%)</span>
+        </div>
+
+        <!-- Lap Time & Multipliers -->
+        <div style="display: flex; align-items: center; gap: 14px;">
+          <div id="lap-time-readout" class="lap-time-readout">00:00.00</div>
+          <div class="speed-multipliers">
+            <button id="btn-speed-05x" class="btn-multiplier">0.5x</button>
+            <button id="btn-speed-1x" class="btn-multiplier active">1x</button>
+            <button id="btn-speed-2x" class="btn-multiplier">2x</button>
+            <button id="btn-speed-5x" class="btn-multiplier">5x</button>
+            <button id="btn-speed-10x" class="btn-multiplier">10x</button>
+          </div>
+        </div>
+      </div>
+    </footer>
+
+  </div>
+
+  <!-- Main ES Module Entry Point -->
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

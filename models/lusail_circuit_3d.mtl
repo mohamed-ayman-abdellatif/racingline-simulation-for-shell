@@ -1,0 +1,35 @@
+# Lusail Circuit Material Library
+newmtl Asphalt
+Ka 0.12 0.12 0.14
+Kd 0.16 0.17 0.19
+Ks 0.1 0.1 0.1
+Ns 12.0
+d 1.0
+
+newmtl Kerb_Red
+Ka 0.35 0.06 0.08
+Kd 0.88 0.12 0.16
+Ks 0.25 0.25 0.25
+Ns 25.0
+d 1.0
+
+newmtl Steel_Barrier
+Ka 0.22 0.24 0.28
+Kd 0.65 0.70 0.75
+Ks 0.85 0.85 0.85
+Ns 60.0
+d 1.0
+
+newmtl Gantry
+Ka 0.18 0.20 0.24
+Kd 0.35 0.40 0.48
+Ks 0.5 0.5 0.5
+Ns 30.0
+d 1.0
+
+newmtl Grandstand
+Ka 0.2 0.22 0.26
+Kd 0.45 0.50 0.58
+Ks 0.3 0.3 0.3
+Ns 15.0
+d 1.0
